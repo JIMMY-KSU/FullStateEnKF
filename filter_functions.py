@@ -64,6 +64,75 @@ def calc_MSIS_density(t, X_vector, day_of_year_init, day_of_month_init, hour_ini
     return density
 
 
+#altitude in km
+def gen_one_ensemble(latitudes, longitudes, alt, day_of_year, t):
+
+    num_lat = len(latitudes)
+    num_lon = len(longitudes)
+    density_grid = np.zeros((num_lat, num_lon))
+    
+    day_of_year = math.floor(t/86400) + day_of_year
+    t = t - math.floor(t/86400) * 86400
+    
+    
+    #loop through spatial latitude/longitude grid
+
+    for ii in range(num_lat):
+
+        lat = latitudes[ii]
+
+        for jj in range(num_lon):
+
+            lon = longitudes[jj]
+            
+            #check if lon is negative or wrapped around after 2 pi
+            if lon > 2*math.pi:
+                lon = lon - 2*math.pi
+            elif lon < 0:
+                lon = lon + 2*math.pi
+
+            lst = lon/(2*math.pi) * 24 #fraction of 360 degrees converted to hours
+
+            lon = 0
+
+            Output = nrlmsise_output()
+            Input = nrlmsise_input()
+            flags = nrlmsise_flags()
+            aph = ap_array()
+
+            for i in range(7):
+                aph.a[i]=100
+            flags.switches[0] = 1
+            for i in range(1, 24):
+                flags.switches[i]=1
+
+            Input.doy = day_of_year
+            Input.year = 0 #/* without effect */
+            Input.sec = t
+            Input.alt = alt
+            Input.g_lat = math.degrees(lat)
+            Input.g_long = math.degrees(lon)
+            Input.lst = lst #I believe this needs to be lst b/c will populate for all local sidereal times
+            #as though greenwich is midnight, but this shell is not actually dependent on location on Earth,
+            #it is only dependent on its angle/location WRT the sun, will convert this grid to sun fixed 
+            #coordinate system post generation
+            Input.f107A = 80 #I believe this is a "nominal" value
+            Input.f107 = 80
+            Input.ap = 4 
+
+            gtd7d(Input, flags, Output)
+
+            density = Output.d[5] #total mass density (grams/m^3, m^3 b/c switches[0] = 1)
+            density = density 
+            #print(rho)
+
+            density_grid[ii, jj] = density
+            
+            
+    return density_grid
+
+
+
 #t_UT : current universal time
 #current longitude of space object
 #returns LST in hours
