@@ -2,7 +2,7 @@
 %% Read in and Prep Results
 
  
-load 'Data Files/RR_EnSRF_q39_75obs.mat';
+load 'Data Files/RR_EnKF_q39_noQ_lambdaaPt1.mat';
 
 %load 'Data Files/7Period_Results_180RAAN.mat';
 
@@ -39,7 +39,8 @@ indices_4 = measurement_array(1:stop_index,2) == 4;
 
 %% percent
 
-
+est_density_array = X_mean_updated_list_EnKF(:,end);
+est_density_array = reshape(est_density_array, 1, stop_index); 
 
 perc_error = 100 * abs(est_density_array - true_density_array(1:stop_index))./true_density_array(1:stop_index);
 
@@ -74,21 +75,25 @@ y = 0:5:360;
 %% Process Time Series Results
 
 
+time_steps = 1:10:200;
+time_steps = [time_steps, 200];
+
+
 counter = 1;
 figure;
 title(['Density Estimate Error'])
     
-for ii = 1:11:length(est_density_grid_array)
+for ii = 1:1:length(time_steps)
     
-    ii
+    index = time_steps(ii)
     
     %difference between true and estimated density grid
-    Z = final_density_grid_truth_timeSeries(ii,:,:) - est_density_grid_array(ii,:,:);
+    Z = final_density_grid_truth_timeSeries(index,:,:) - est_density_grid_array(index,:,:);
     Z = reshape(Z, 37, 73);
     Z = Z.^2;
 
 
-    subplot(1,7,counter)
+    subplot(3,7,counter)
     h = pcolor(Y,X,Z');
     set(h,'EdgeColor','none')
     %clabel(C, h)
@@ -97,7 +102,7 @@ for ii = 1:11:length(est_density_grid_array)
     ylabel('Lat')
     xlabel('LST')
     zlabel('Density')
-    title(['Time Step: ', num2str(ii)])
+    title(['Time: ', num2str( measurement_array(index, 1) / 60), ' min'])
     
     counter = counter + 1;
     
@@ -156,13 +161,15 @@ y = 1:1:7;
 [X,Y] = meshgrid(x,y);
 
 
-for ii = 1:10:length(est_density_grid_array)
+for ii = 1:1:length(time_steps)
     
-    Z = P_list_EnKF(ii,:,:);
+    index = time_steps(ii)
+    
+    Z = P_list_EnKF(index,:,:);
     Z = reshape(Z, 7, 7);
     
     
-    subplot(1,7,counter)
+    subplot(3,7,counter)
     h = pcolor(Y,X,Z');
     set(h,'EdgeColor','none')
     %clabel(C, h)
@@ -171,11 +178,73 @@ for ii = 1:10:length(est_density_grid_array)
     ylabel('State: XYZ Position, XYZ Velocity, Density')
     xlabel('State')
     zlabel('State Covariance')
-    title(['Time Step: ', num2str(ii)])
+    title(['Time: ', num2str( measurement_array(index, 1) / 60), ' min'])
     
     counter = counter + 1;
     
 end
+
+
+%% Full Covariance Plots
+
+figure;
+
+x = -90:5:90;
+y = 0:5:360;
+[X,Y] = meshgrid(x,y);
+
+
+for ii = 1:1:length(time_steps)
+    
+    ii
+    
+    Z = P_full_list(ii,7:end,7:end);
+    Z = reshape(Z, 2701, 2701);
+    Z = diag(Z);
+    Z = reshape(Z, 37, 73);
+    
+    
+    subplot(3,7,ii)
+    h = pcolor(Y,X,Z');
+    set(h,'EdgeColor','none')
+    %clabel(C, h)
+    colorbar
+    caxis([1e-8,4e-8]); %force colorbar to be the same for each plot
+    ylabel('Density State')
+    xlabel('')
+    zlabel('State Covariance')
+    title([num2str( measurement_array(time_steps(ii), 1) / 60), ' min'])
+    
+    counter = counter + 1;
+    
+end
+
+%% 3D Plot of Single True Density Grid for reference\
+
+figure;
+
+x = -90:5:90;
+y = 0:5:360;
+[X,Y] = meshgrid(x,y);
+
+
+Z = final_density_grid_truth_timeSeries(1, :, :);
+Z = reshape(Z, 37, 73);
+
+
+h = pcolor(Y,X,Z');
+set(h,'EdgeColor','none')
+%clabel(C, h)
+colorbar
+%caxis([1e-8,4e-8]); %force colorbar to be the same for each plot
+ylabel('Latitude')
+xlabel('LST')
+zlabel('State Covariance')
+title('Density Grid')
+    
+
+
+
 
 
 
