@@ -2,6 +2,8 @@ import numpy as np
 import math
 import scipy
 import operator
+import copy
+import matplotlib.pyplot as plt
 
 #MSIS: https://github.com/DeepHorizons/Python-NRLMSISE-00
 #import time
@@ -10,6 +12,7 @@ from nrlmsise_00 import *
 #SUBROUTINE GTD7D -- d[5] is the "effective total mass density
 #for drag" and is the sum of the mass densities of all species
 #in this model, INCLUDING anomalous oxygen.
+
 
 
 
@@ -53,9 +56,9 @@ def calc_MSIS_density(t, X_vector, day_of_year_init, day_of_month_init, hour_ini
     Input.g_lat = math.degrees(latitude)
     Input.g_long = math.degrees(lon)
     Input.lst = lst
-    Input.f107A = 80 #I believe this is a "nominal" value
-    Input.f107 = 80
-    Input.ap = 4 
+    Input.f107A = 180 #I believe this is a "nominal" value
+    Input.f107 = 180
+    Input.ap = 10 
 
     gtd7d(Input, flags, Output)
 
@@ -116,9 +119,9 @@ def gen_one_ensemble(latitudes, longitudes, alt, day_of_year, t):
             #as though greenwich is midnight, but this shell is not actually dependent on location on Earth,
             #it is only dependent on its angle/location WRT the sun, will convert this grid to sun fixed 
             #coordinate system post generation
-            Input.f107A = 80 #I believe this is a "nominal" value
-            Input.f107 = 80
-            Input.ap = 4 
+            Input.f107A = 180 #I believe this is a "nominal" value
+            Input.f107 = 180
+            Input.ap = 10 
 
             gtd7d(Input, flags, Output)
 
@@ -255,194 +258,636 @@ def RIC_2_ECI(pos, vel, Q_ric):
 
 
 
-def plot_error_covar_xref(P_list, x_ref_updated_list, obs_data_truth, measurement_array):
+def calc_display_results_pre(pre_fit_list, prefit_bounds_list, measurement_array, R, meas_type, stop_index, saveFig_bool, time_str):
+    
+    
+    rms_1 = 'Range ='
+    unit_1 = 'km'
+    ylabel_1 = 'Range Residuals (km)'
+    title_1 = 'Range pre-fit Residuals'
+    save_fig_1 = 'prefit_range.png'
+    rms_2 = 'Range Rate ='
+    unit_2 = 'km/s'
+    ylabel_2 = 'Range Rate Residuals (km/s)'
+    title_2 = 'Range Rate pre-fit Residuals'
+    save_fig_2 = 'prefit_rangeRate.png'
+    pre_fit_list_new = copy.deepcopy(pre_fit_list)
+         
+    if (meas_type == 2) or (meas_type == 3):
+        rms_1 = 'Azimuth ='
+        unit_1 = 'degrees'
+        rms_2 = 'Elevation ='
+        unit_2 = 'degrees'
+        pre_fit_list_new[:, 0] = np.degrees(pre_fit_list[:, 0])
+        pre_fit_list_new[:, 1] = np.degrees(pre_fit_list[:, 1])
+        ylabel_1 = 'Azimuth Residuals (degrees)'
+        title_1 = 'Azimuth pre-fit Residuals'
+        save_fig_1 = 'prefit_az.png'
+        ylabel_2 = 'Elevation Residuals (degrees)'
+        title_2 = 'Elevation pre-fit Residuals'
+        save_fig_2 = 'prefit_el_rate.png'
+
+        
+    
+
+    times = measurement_array[:stop_index,0]/(60)
+    
+    indices_1 = np.where(measurement_array[:stop_index, 1] == 1)[0]
+    indices_2 = np.where(measurement_array[:stop_index, 1] == 2)[0]
+    indices_3 = np.where(measurement_array[:stop_index, 1] == 3)[0]
+    indices_4 = np.where(measurement_array[:stop_index, 1] == 4)[0]
+
+    
+    
+    #pre-fit
+    print('pre-fit RMS:')
+    pre_fit_1_list_4RMS = pre_fit_list_new[:, 0]
+    prefit_1_rms = np.sqrt(np.mean(np.square(pre_fit_1_list_4RMS)))
+    print(rms_1, "%.4f" % prefit_1_rms, unit_1)
+
+    pre_fit_2_list_4RMS = pre_fit_list_new[:, 1]
+    prefit_2_rms = np.sqrt(np.mean(np.square(pre_fit_2_list_4RMS)))
+    print(rms_2, "%.4f" % prefit_2_rms, unit_2)
+    
+    if meas_type == 3:
+        pre_fit_3_list_4RMS = pre_fit_list_new[:, 2]
+        prefit_3_rms = np.sqrt(np.mean(np.square(pre_fit_3_list_4RMS)))
+        print('Range =', "%.3f" % prefit_3_rms, 'km')
+    
+    
+    covar_env_upper1 = np.degrees(abs(prefit_bounds_list[:stop_index, 0]))*3
+    covar_env_upper2 = np.degrees(abs(prefit_bounds_list[:stop_index, 1]))*3
+
+   
+    #pre-fit Residuals
+    fig_preFit_az = plt.figure()
+    plt.plot(times, covar_env_upper1, label='_nolegend_', c='g')
+    plt.plot(times, -covar_env_upper1, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], pre_fit_list_new[indices_1, 0], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], pre_fit_list_new[indices_2, 0], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], pre_fit_list_new[indices_3, 0], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], pre_fit_list_new[indices_4, 0], s=50, c='k', marker='o')
+    plt.ylabel(ylabel_1, fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.title(title_1, fontsize=18)
+    legend_names = ['Station 1', 'Station 2']
+    plt.legend(legend_names, fontsize=10)
+    plt.xlim([times[0] - 5, times[-1] + 5])
+    plt.tight_layout()
+    plt.show()
+    #fig.savefig(save_fig_1)
+
+    fig_preFit_el = plt.figure()
+    plt.plot(times, covar_env_upper2, label='_nolegend_', c='g')
+    plt.plot(times, -covar_env_upper2, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], pre_fit_list_new[indices_1, 1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], pre_fit_list_new[indices_2, 1], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], pre_fit_list_new[indices_3, 1], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], pre_fit_list_new[indices_4, 1], s=50, c='k', marker='o')
+    plt.ylabel(ylabel_2, fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.title(title_2, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    #plt.ylim([-.01,.01])
+    plt.xlim([times[0] - 5, times[-1] + 5])
+    plt.tight_layout()
+    plt.show()
+    #fig.savefig(save_fig_2)
+    
+    if meas_type == 3:
+        
+        covar_env_upper3 = abs(prefit_bounds_list[:stop_index, 2])*3
+        
+        fig_preFit_range = plt.figure()
+        plt.plot(times, covar_env_upper3, label='_nolegend_', c='g')
+        plt.plot(times, -covar_env_upper3, label='_nolegend_', c='g')
+        plt.scatter(times[indices_1], pre_fit_list_new[indices_1, 2], s=50, c='m', marker='s')
+        plt.scatter(times[indices_2], pre_fit_list_new[indices_2, 2], s=50, c='g', marker='^')
+        plt.scatter(times[indices_3], pre_fit_list_new[indices_3, 2], s=50, c='r', marker='D')
+        plt.scatter(times[indices_4], pre_fit_list_new[indices_4, 2], s=50, c='k', marker='o')
+        plt.ylabel('Range Residuals (km)', fontsize=18)
+        plt.xlabel(time_str, fontsize=18)
+        plt.title('Range pre-fit Residuals', fontsize=18)
+        plt.legend(legend_names, fontsize=10)
+        #plt.ylim([-.01,.01])
+        plt.xlim([times[0] - 5, times[-1] + 5])
+        plt.tight_layout()
+        plt.show()
+        #fig.savefig('prefit_range.png')
+    
+    if saveFig_bool:
+        fig_preFit_az.savefig('Figures/preFit_az.png')
+        fig_preFit_el.savefig('Figures/preFit_el.png')
+        fig_preFit_range.savefig('Figures/preFit_range.png')
+        
+        
+def calc_display_results(post_fit_list, measurement_array, R, meas_type, stop_index, saveFig_bool, time_str):
+    
+    
+    rms_1 = 'Range ='
+    unit_1 = 'km'
+    ylabel_1 = 'Range Residuals (km)'
+    title_1 = 'Range Post-fit Residuals'
+    save_fig_1 = 'postfit_range.png'
+    rms_2 = 'Range Rate ='
+    unit_2 = 'km/s'
+    ylabel_2 = 'Range Rate Residuals (km/s)'
+    title_2 = 'Range Rate Post-fit Residuals'
+    save_fig_2 = 'postfit_rangeRate.png'
+    post_fit_list_new = copy.deepcopy(post_fit_list)
+         
+    if (meas_type == 2) or (meas_type == 3):
+        rms_1 = 'Azimuth ='
+        unit_1 = 'degrees'
+        rms_2 = 'Elevation ='
+        unit_2 = 'degrees'
+        post_fit_list_new[:, 0] = np.degrees(post_fit_list[:, 0])
+        post_fit_list_new[:, 1] = np.degrees(post_fit_list[:, 1])
+        ylabel_1 = 'Azimuth Residuals (degrees)'
+        title_1 = 'Azimuth Post-fit Residuals'
+        save_fig_1 = 'postfit_az.png'
+        ylabel_2 = 'Elevation Residuals (degrees)'
+        title_2 = 'Elevation Post-fit Residuals'
+        save_fig_2 = 'postfit_el_rate.png'
+
+        
+    
+
+    times = measurement_array[:stop_index,0]/(60)
+    
+    indices_1 = np.where(measurement_array[:stop_index, 1] == 1)[0]
+    indices_2 = np.where(measurement_array[:stop_index, 1] == 2)[0]
+    indices_3 = np.where(measurement_array[:stop_index, 1] == 3)[0]
+    indices_4 = np.where(measurement_array[:stop_index, 1] == 4)[0]
+
+    
+    
+    #Post-fit
+    print('Post-fit RMS:')
+    post_fit_1_list_4RMS = post_fit_list_new[:, 0]
+    postfit_1_rms = np.sqrt(np.mean(np.square(post_fit_1_list_4RMS)))
+    print(rms_1, "%.4f" % postfit_1_rms, unit_1)
+
+    post_fit_2_list_4RMS = post_fit_list_new[:, 1]
+    postfit_2_rms = np.sqrt(np.mean(np.square(post_fit_2_list_4RMS)))
+    print(rms_2, "%.4f" % postfit_2_rms, unit_2)
+    
+    if meas_type == 3:
+        post_fit_3_list_4RMS = post_fit_list_new[:, 2]
+        postfit_3_rms = np.sqrt(np.mean(np.square(post_fit_3_list_4RMS)))
+        print('Range =', "%.5f" % postfit_3_rms, 'km')
+    
+    
+    covar_env_upper1 = np.ones((stop_index)) * np.degrees(np.sqrt(abs(R[0, 0])))*3
+    covar_env_upper2 = np.ones((stop_index)) * np.degrees(np.sqrt(abs(R[1, 1])))*3
+
+   
+    #Post-fit Residuals
+    fig_postFit_az = plt.figure()
+    plt.plot(times, covar_env_upper1, label='_nolegend_', c='g')
+    plt.plot(times, -covar_env_upper1, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], post_fit_list_new[indices_1, 0], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], post_fit_list_new[indices_2, 0], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], post_fit_list_new[indices_3, 0], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], post_fit_list_new[indices_4, 0], s=50, c='k', marker='o')
+    plt.ylabel(ylabel_1, fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.title(title_1, fontsize=18)
+    legend_names = ['Station 1', 'Station 2']
+    plt.legend(legend_names, fontsize=10)
+    plt.xlim([times[0] - 5, times[-1] + 5])
+    plt.tight_layout()
+    plt.show()
+    #fig.savefig(save_fig_1)
+
+    fig_postFit_el = plt.figure()
+    plt.plot(times, covar_env_upper2, label='_nolegend_', c='g')
+    plt.plot(times, -covar_env_upper2, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], post_fit_list_new[indices_1, 1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], post_fit_list_new[indices_2, 1], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], post_fit_list_new[indices_3, 1], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], post_fit_list_new[indices_4, 1], s=50, c='k', marker='o')
+    plt.ylabel(ylabel_2, fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.title(title_2, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    #plt.ylim([-.01,.01])
+    plt.xlim([times[0] - 5, times[-1] + 5])
+    plt.tight_layout()
+    plt.show()
+    #fig.savefig(save_fig_2)
+    
+    if meas_type == 3:
+        
+        covar_env_upper3 = np.ones((stop_index)) * np.sqrt(abs(R[2, 2]))*3
+        
+        fig_postFit_range = plt.figure()
+        plt.plot(times, covar_env_upper3, label='_nolegend_', c='g')
+        plt.plot(times, -covar_env_upper3, label='_nolegend_', c='g')
+        plt.scatter(times[indices_1], post_fit_list_new[indices_1, 2], s=50, c='m', marker='s')
+        plt.scatter(times[indices_2], post_fit_list_new[indices_2, 2], s=50, c='g', marker='^')
+        plt.scatter(times[indices_3], post_fit_list_new[indices_3, 2], s=50, c='r', marker='D')
+        plt.scatter(times[indices_4], post_fit_list_new[indices_4, 2], s=50, c='k', marker='o')
+        plt.ylabel('Range Residuals (km)', fontsize=18)
+        plt.xlabel(time_str, fontsize=18)
+        plt.title('Range Post-fit Residuals', fontsize=18)
+        legend_names = ['Station 1', 'Station 2']
+        plt.legend(legend_names, fontsize=10)
+        #plt.ylim([-.01,.01])
+        plt.xlim([times[0] - 5, times[-1] + 5])
+        plt.tight_layout()
+        plt.show()
+        #fig.savefig('postfit_range.png')
+    
+    if saveFig_bool:
+        fig_postFit_az.savefig('Figures/postFit_az.png')
+        fig_postFit_el.savefig('Figures/postFit_el.png')
+        fig_postFit_range.savefig('Figures/postFit_range.png')
+        
+    
+    
+def plot_error_covar_xref(P_list, x_ref_updated_list, obs_data_truth, density_truth, x_range, y_range, \
+                          z_range, xv_range, yv_range, zv_range, measurement_array, time, stop_index, \
+                          saveFig_bool, time_str, title_str):
     
     #Compare to the Truth Data : Estimation Errors------
+
+    times = time[:stop_index]/(60)
     
-    times = measurement_array[:, 0]/(60)
+    indices_1 = np.where(measurement_array[:stop_index, 1] == 1)[0]
+    indices_2 = np.where(measurement_array[:stop_index, 1] == 2)[0]
+    indices_3 = np.where(measurement_array[:stop_index, 1] == 3)[0]
+    indices_4 = np.where(measurement_array[:stop_index, 1] == 4)[0]
     
-    stop_index = len(measurement_array)
-    
-    indices_1 = np.where(measurement_array[:stop_index, 4] == 1)[0]
-    indices_2 = np.where(measurement_array[:stop_index, 4] == 2)[0]
-    
+    density_covar_env_upper = np.sqrt(abs(P_list[:stop_index, -1, -1]))*3
+    density_covar_env_lower = -density_covar_env_upper
+    density_error = x_ref_updated_list[:stop_index,-1] - density_truth[:stop_index]
     
     x_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 0, 0]))*3
-    x_covar_env_lower = -np.sqrt(abs(P_list[:stop_index, 0, 0]))*3
-    x_error = x_ref_updated_list[:,0] - obs_data_truth[:stop_index, 0]
+    x_covar_env_lower = -x_covar_env_upper
+    x_error = x_ref_updated_list[:stop_index,0] - obs_data_truth[:stop_index, 0]
     
     y_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 1, 1]))*3
-    y_covar_env_lower = -np.sqrt(abs(P_list[:stop_index, 1, 1]))*3
-    y_error = x_ref_updated_list[:,1] - obs_data_truth[:stop_index, 1]
+    y_covar_env_lower = -y_covar_env_upper
+    y_error = x_ref_updated_list[:stop_index,1] - obs_data_truth[:stop_index, 1]
     
     z_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 2, 2]))*3
-    z_covar_env_lower = -np.sqrt(abs(P_list[:stop_index, 2, 2]))*3
-    z_error = x_ref_updated_list[:,2] - obs_data_truth[:stop_index, 2]
+    z_covar_env_lower = -z_covar_env_upper
+    z_error = x_ref_updated_list[:stop_index,2] - obs_data_truth[:stop_index, 2]
     
     #error_pos_norm = np.sqrt(x_error**2 + y_error**2 + z_error**2)
-    print('Positon RMS:')
+    error_density_rms_3D = np.sqrt(np.mean(np.square(density_error)))
+    print('Density RMS =', "%.5f" % error_density_rms_3D, r'$(kg/km^3)$')
+    
+    print('Position RMS:')
     error_x_pos_rms_3D = np.sqrt(np.mean(np.square(x_error)))
-    print('X =', error_x_pos_rms_3D, 'meters')
+    print('X =', "%.4f" % error_x_pos_rms_3D, 'km')
     
     error_y_pos_rms_3D = np.sqrt(np.mean(np.square(y_error)))
-    print('Y =', error_y_pos_rms_3D, 'meters')
+    print('Y =', "%.4f" % error_y_pos_rms_3D, 'km')
     
     error_z_pos_rms_3D = np.sqrt(np.mean(np.square(z_error)))
-    print('Z =', error_z_pos_rms_3D, 'meters')
+    print('Z =', "%.4f" % error_z_pos_rms_3D, 'km')
     
     pos_rms = np.sqrt(error_x_pos_rms_3D**2 + error_y_pos_rms_3D**2 + error_z_pos_rms_3D**2)
-    print('Overall =', pos_rms/1e3, 'km')
+    print('Overall =', "%.4f" % pos_rms, 'km')
     
     
-    #x Position
-    fig = plt.figure()
-    plt.plot(times, x_covar_env_upper, label='_nolegend_')
-    plt.plot(times, x_covar_env_lower, label='_nolegend_')
-    plt.scatter(times[indices_1], x_error[indices_1], s=70, c='g', marker='x')
-    plt.scatter(times[indices_2], x_error[indices_2], s=70, c='b', marker='+')
-    #plt.scatter(times, x_error)
-    plt.ylabel('meters', fontsize=18)
-    plt.xlabel('Time (minutes)', fontsize=18)
-    legend_names = ['Station 1', 'Station 2', 'Station 3']
-    plt.legend(legend_names, fontsize=16)
-    plt.title('EKF X Position Covariance Envelope', fontsize=18)
+    #Density
+    fig_dens = plt.figure()
+    plt.plot(times, density_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, density_covar_env_lower, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], density_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], density_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], density_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], density_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel(r'$(kg/km^3)$', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    legend_names = ['Station 1', 'Station 2']
+    plt.legend(legend_names, fontsize=10)
+    plt.title(title_str + ' Density Error & Covariance Envelope', fontsize=18)
     #plt.ylim([-x_range,x_range])
-    #plt.xlim([0,time_hrs[-1]])
+    plt.xlim([times[0] - 5, times[-1] + 5])
     plt.show()
-    #fig.savefig('x_pos_error.png')
     
-    #y Position
-    fig = plt.figure()
-    plt.plot(times, y_covar_env_upper, label='_nolegend_')
-    plt.plot(times, y_covar_env_lower, label='_nolegend_')
-    plt.scatter(times[indices_1], y_error[indices_1], s=70, c='g', marker='x')
-    plt.scatter(times[indices_2], y_error[indices_2], s=70, c='b', marker='+')
-    #plt.scatter(times, y_error)
-    plt.ylabel('meters', fontsize=18)
-    plt.xlabel('Time (minutes)', fontsize=18)
-    plt.legend(legend_names, fontsize=16)
-    plt.title('EKF Y Position Covariance Envelope', fontsize=18)
-    #plt.ylim([-y_range,y_range])
-    #plt.xlim([0,time_hrs[-1]])
+
+    #x Position
+    fig_xpos = plt.figure()
+    plt.plot(times, x_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, x_covar_env_lower, label='_nolegend_', c='g')
+    
+    plt.scatter(times[indices_1], x_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], x_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], x_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], x_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title(title_str + ' X Position Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-x_range,x_range])
+    plt.xlim([times[0] - 5, times[-1] + 5])
+    plt.show()
+
+    #y Position 
+    fig_ypos = plt.figure()
+    plt.plot(times, y_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, y_covar_env_lower, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], y_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], y_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], y_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], y_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title(title_str + ' Y Position Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-y_range,y_range])
+    plt.xlim([times[0] - 5, times[-1] + 5])
     plt.show()
     #fig.savefig('y_pos_error.png')
-    
+
     #z Position
-    fig = plt.figure()
-    plt.plot(times, z_covar_env_upper, label='_nolegend_')
-    plt.plot(times, z_covar_env_lower, label='_nolegend_')
-    plt.scatter(times[indices_1], z_error[indices_1], s=70, c='g', marker='x')
-    plt.scatter(times[indices_2], z_error[indices_2], s=70, c='b', marker='+')
-    #plt.scatter(times, z_error)
-    plt.ylabel('meters', fontsize=18)
-    plt.xlabel('Time (minutes)', fontsize=18)
-    plt.legend(legend_names, fontsize=16)
-    plt.title('EKF Z Position Covariance Envelope', fontsize=18)
-    #plt.ylim([-z_range,z_range])
-    #plt.xlim([0,time_hrs[-1]])
+    fig_zpos = plt.figure()
+    plt.plot(times, z_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, z_covar_env_lower, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], z_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], z_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], z_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], z_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title(title_str + ' Z Position Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-z_range,z_range])
+    plt.xlim([times[0] - 5, times[-1] + 5])
     plt.show()
-    #fig.savefig('z_pos_error.png')
     
     #x Velocity
     x_dot_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 3, 3]))*3
     x_dot_covar_env_lower = -np.sqrt(abs(P_list[:stop_index, 3, 3]))*3
-    x_vel_error = x_ref_updated_list[:,3] - obs_data_truth[:stop_index, 3]
-    
-    fig = plt.figure()
-    plt.plot(times, x_dot_covar_env_upper, label='_nolegend_')
-    plt.plot(times, x_dot_covar_env_lower, label='_nolegend_')
-    plt.scatter(times[indices_1], x_vel_error[indices_1], s=70, c='g', marker='x')
-    plt.scatter(times[indices_2], x_vel_error[indices_2], s=70, c='b', marker='+')
-    #plt.scatter(times, x_vel_error)
-    plt.ylabel('meters/second', fontsize=18)
-    plt.xlabel('Time (minutes)', fontsize=18)
-    plt.legend(legend_names, fontsize=16)
-    plt.title('EKF X Velocity Estimation Covariance Envelope', fontsize=18)
-    #plt.ylim([-x_range,x_range])
-    #plt.xlim([0,time_hrs[-1]])
+    x_vel_error = x_ref_updated_list[:stop_index,3] - obs_data_truth[:stop_index, 3]
+
+    fig_xvel = plt.figure()
+    plt.plot(times, x_dot_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, x_dot_covar_env_lower, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], x_vel_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], x_vel_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], x_vel_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], x_vel_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km/second', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title(title_str + ' X Velocity Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-xv_range,xv_range])
+    plt.xlim([times[0] - 5, times[-1] + 5])
     plt.show()
     #fig.savefig('x_vel_error.png')
-    
+
     #y Velocity
     y_dot_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 4, 4]))*3
     y_dot_covar_env_lower = -np.sqrt(abs(P_list[:stop_index, 4, 4]))*3
-    y_vel_error = x_ref_updated_list[:,4] - obs_data_truth[:stop_index, 4]
-    
-    fig = plt.figure()
-    plt.plot(times, y_dot_covar_env_upper, label='_nolegend_')
-    plt.plot(times, y_dot_covar_env_lower, label='_nolegend_')
-    plt.scatter(times[indices_1], y_vel_error[indices_1], s=70, c='g', marker='x')
-    plt.scatter(times[indices_2], y_vel_error[indices_2], s=70, c='b', marker='+')
-    #plt.scatter(times, y_vel_error)
-    plt.ylabel('meters/second', fontsize=18)
-    plt.xlabel('Time (minutes)', fontsize=18)
-    plt.legend(legend_names, fontsize=16)
-    plt.title('EKF Y Velocity Estimation Covariance Envelope', fontsize=18)
-    #plt.ylim([-y_range,y_range])
-    #plt.xlim([0,time_hrs[-1]])
+    y_vel_error = x_ref_updated_list[:stop_index,4] - obs_data_truth[:stop_index, 4]
+
+    fig_yvel = plt.figure()
+    plt.plot(times, y_dot_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, y_dot_covar_env_lower, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], y_vel_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], y_vel_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], y_vel_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], y_vel_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km/second', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title(title_str + ' Y Velocity Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-yv_range,yv_range])
+    plt.xlim([times[0] - 5, times[-1] + 5])
     plt.show()
-    #fig.savefig('y_vel_error.png')
-    
+
     #z Velocity
     z_dot_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 5, 5]))*3
     z_dot_covar_env_lower = -np.sqrt(abs(P_list[:stop_index, 5, 5]))*3
-    z_vel_error = x_ref_updated_list[:,5] - obs_data_truth[:stop_index, 5]
-    
-    fig = plt.figure()
-    plt.plot(times, z_dot_covar_env_upper, label='_nolegend_')
-    plt.plot(times, z_dot_covar_env_lower, label='_nolegend_')
-    plt.scatter(times[indices_1], z_vel_error[indices_1], s=70, c='g', marker='x')
-    plt.scatter(times[indices_2], z_vel_error[indices_2], s=70, c='b', marker='+')
-    #plt.scatter(times, z_vel_error)
-    plt.ylabel('meters/second', fontsize=18)
-    plt.xlabel('Time (minutes)', fontsize=18)
-    plt.legend(legend_names, fontsize=16)
-    plt.title('EKF Z Velocity Estimation Covariance Envelope', fontsize=18)
-    #plt.ylim([-z_range,z_range])
-    #plt.xlim([0,time_hrs[-1]])
+    z_vel_error = x_ref_updated_list[:stop_index,5] - obs_data_truth[:stop_index, 5]
+
+    fig_zvel = plt.figure()
+    plt.plot(times, z_dot_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, z_dot_covar_env_lower, label='_nolegend_', c='g') 
+    plt.scatter(times[indices_1], z_vel_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], z_vel_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], z_vel_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], z_vel_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km/second', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title(title_str + ' Z Velocity Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-zv_range,zv_range])
+    plt.xlim([times[0] - 5, times[-1] + 5])
     plt.show()
-    #fig.savefig('z_vel_error.png')
     
-    #AMR
-    #if drag_model == 1 or drag_model == 2:
-    AMR_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 6, 6]))*3
-    AMR_covar_env_lower = -np.sqrt(abs(P_list[:stop_index, 6, 6]))*3
-    AMR_error = x_ref_updated_list[:,6] - truth_AMR
-    
-    fig = plt.figure()
-    plt.plot(times, AMR_covar_env_upper, c='g', label='_nolegend_')
-    plt.plot(times, AMR_covar_env_lower, c='g', label='_nolegend_')
-    #plt.scatter(times, AMR_error, s=70, c='b')
-    plt.scatter(times[indices_1], AMR_error[indices_1], s=70, c='g', marker='x')
-    plt.scatter(times[indices_2], AMR_error[indices_2], s=70, c='b', marker='+')
-    plt.ylabel('Difference from Truth', fontsize=18)
-    plt.xlabel('Time (minutes)', fontsize=18)
-    #plt.legend(legend_names, fontsize=16)
-    plt.title('AMR Error & Covariance Envelope', fontsize=18)
-    #plt.ylim([-10,10])
-    #plt.xlim([0,time_hrs[-1]])
-    plt.show()
-    #fig.savefig('AMR_error.png')
     
     print('Velocity RMS:')
     error_x_vel_rms_3D = np.sqrt(np.mean(np.square(x_vel_error)))
-    print('X =', error_x_vel_rms_3D, 'meters/second')
+    print('X =', "%.6f" % error_x_vel_rms_3D, 'km/second')
     
     error_y_vel_rms_3D = np.sqrt(np.mean(np.square(y_vel_error)))
-    print('Y =', error_y_vel_rms_3D, 'meters/second')
+    print('Y =', "%.6f" % error_y_vel_rms_3D, 'km/second')
     
     error_z_vel_rms_3D = np.sqrt(np.mean(np.square(z_vel_error)))
-    print('Z =', error_z_vel_rms_3D, 'meters/second')
+    print('Z =', "%.6f" % error_z_vel_rms_3D, 'km/second')
     
     vel_rms = np.sqrt(error_x_vel_rms_3D**2 + error_y_vel_rms_3D**2 + error_z_vel_rms_3D**2)
-    print('Overall =', vel_rms/1e3, 'km/s')
+    print('Overall =', "%.6f" % vel_rms, 'km/s')
+
     
-    #if drag_model == 1 or drag_model == 2:
-    error_AMR_rms_3D = np.sqrt(np.mean(np.square(AMR_error)))
-    print('AMR RMS =', error_AMR_rms_3D, 'm^2/kg')
+    if saveFig_bool:
+        fig_dens.savefig('Figures/dens_error.png')
+        fig_xpos.savefig('Figures/x_pos_error.png')
+        fig_ypos.savefig('Figures/y_pos_error.png')
+        fig_zpos.savefig('Figures/z_pos_error.png')
+        fig_xvel.savefig('Figures/x_vel_error.png')
+        fig_yvel.savefig('Figures/y_vel_error.png')
+        fig_zvel.savefig('Figures/z_vel_error.png')
+    
+        
+    
 
+def plot_error_covar_xref_noDensity(P_list, x_ref_updated_list, obs_data_truth, x_range, y_range, \
+                          z_range, xv_range, yv_range, zv_range, measurement_array, time, stop_index, saveFig_bool, time_str):
+    
+    #Compare to the Truth Data : Estimation Errors------
 
+    times = time[:stop_index]/(60)
+    
+    indices_1 = np.where(measurement_array[:stop_index, 1] == 1)[0]
+    indices_2 = np.where(measurement_array[:stop_index, 1] == 2)[0]
+    indices_3 = np.where(measurement_array[:stop_index, 1] == 3)[0]
+    indices_4 = np.where(measurement_array[:stop_index, 1] == 4)[0]
+    
+    
+    x_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 0, 0]))*3
+    x_covar_env_lower = -x_covar_env_upper
+    x_error = x_ref_updated_list[:stop_index,0] - obs_data_truth[:stop_index, 0]
+    
+    y_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 1, 1]))*3
+    y_covar_env_lower = -y_covar_env_upper
+    y_error = x_ref_updated_list[:stop_index,1] - obs_data_truth[:stop_index, 1]
+    
+    z_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 2, 2]))*3
+    z_covar_env_lower = -z_covar_env_upper
+    z_error = x_ref_updated_list[:stop_index,2] - obs_data_truth[:stop_index, 2]
+    
+    
+    print('Position RMS:')
+    error_x_pos_rms_3D = np.sqrt(np.mean(np.square(x_error)))
+    print('X =', "%.4f" % error_x_pos_rms_3D, 'km')
+    
+    error_y_pos_rms_3D = np.sqrt(np.mean(np.square(y_error)))
+    print('Y =', "%.4f" % error_y_pos_rms_3D, 'km')
+    
+    error_z_pos_rms_3D = np.sqrt(np.mean(np.square(z_error)))
+    print('Z =', "%.4f" % error_z_pos_rms_3D, 'km')
+    
+    pos_rms = np.sqrt(error_x_pos_rms_3D**2 + error_y_pos_rms_3D**2 + error_z_pos_rms_3D**2)
+    print('Overall =', "%.4f" % pos_rms, 'km')
+    
+   
+    
 
+    #x Position
+    fig_xpos = plt.figure()
+    plt.plot(times, x_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, x_covar_env_lower, label='_nolegend_', c='g')
+    
+    plt.scatter(times[indices_1], x_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], x_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], x_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], x_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    legend_names = ['Station 1', 'Station 2', 'Station 3', 'Station 4']
+    plt.legend(legend_names, fontsize=10)
+    plt.title('EnKF X Position Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-x_range,x_range])
+    plt.xlim([0,times[-1]])
+    plt.show()
+
+    #y Position 
+    fig_ypos = plt.figure()
+    plt.plot(times, y_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, y_covar_env_lower, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], y_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], y_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], y_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], y_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title('EnKF Y Position Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-y_range,y_range])
+    plt.xlim([0,times[-1]])
+    plt.show()
+    #fig.savefig('y_pos_error.png')
+
+    #z Position
+    fig_zpos = plt.figure()
+    plt.plot(times, z_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, z_covar_env_lower, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], z_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], z_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], z_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], z_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title('EnKF Z Position Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-z_range,z_range])
+    plt.xlim([0,times[-1]])
+    plt.show()
+    
+    #x Velocity
+    x_dot_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 3, 3]))*3
+    x_dot_covar_env_lower = -np.sqrt(abs(P_list[:stop_index, 3, 3]))*3
+    x_vel_error = x_ref_updated_list[:stop_index,3] - obs_data_truth[:stop_index, 3]
+
+    fig_xvel = plt.figure()
+    plt.plot(times, x_dot_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, x_dot_covar_env_lower, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], x_vel_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], x_vel_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], x_vel_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], x_vel_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km/second', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title('EnKF X Velocity Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-xv_range,xv_range])
+    plt.xlim([0,times[-1]])
+    plt.show()
+    #fig.savefig('x_vel_error.png')
+
+    #y Velocity
+    y_dot_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 4, 4]))*3
+    y_dot_covar_env_lower = -np.sqrt(abs(P_list[:stop_index, 4, 4]))*3
+    y_vel_error = x_ref_updated_list[:stop_index,4] - obs_data_truth[:stop_index, 4]
+
+    fig_yvel = plt.figure()
+    plt.plot(times, y_dot_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, y_dot_covar_env_lower, label='_nolegend_', c='g')
+    plt.scatter(times[indices_1], y_vel_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], y_vel_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], y_vel_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], y_vel_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km/second', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title('EnKF Y Velocity Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-yv_range,yv_range])
+    plt.xlim([0,times[-1]])
+    plt.show()
+
+    #z Velocity
+    z_dot_covar_env_upper = np.sqrt(abs(P_list[:stop_index, 5, 5]))*3
+    z_dot_covar_env_lower = -np.sqrt(abs(P_list[:stop_index, 5, 5]))*3
+    z_vel_error = x_ref_updated_list[:stop_index,5] - obs_data_truth[:stop_index, 5]
+
+    fig_zvel = plt.figure()
+    plt.plot(times, z_dot_covar_env_upper, label='_nolegend_', c='g')
+    plt.plot(times, z_dot_covar_env_lower, label='_nolegend_', c='g') 
+    plt.scatter(times[indices_1], z_vel_error[indices_1], s=50, c='m', marker='s')
+    plt.scatter(times[indices_2], z_vel_error[indices_2], s=50, c='g', marker='^')
+    plt.scatter(times[indices_3], z_vel_error[indices_3], s=50, c='r', marker='D')
+    plt.scatter(times[indices_4], z_vel_error[indices_4], s=50, c='k', marker='o')
+    plt.ylabel('km/second', fontsize=18)
+    plt.xlabel(time_str, fontsize=18)
+    plt.legend(legend_names, fontsize=10)
+    plt.title('EnKF Z Velocity Error & Covariance Envelope', fontsize=18)
+    plt.ylim([-zv_range,zv_range])
+    plt.xlim([0,times[-1]])
+    plt.show()
+    
+    
+    print('Velocity RMS:')
+    error_x_vel_rms_3D = np.sqrt(np.mean(np.square(x_vel_error)))
+    print('X =', "%.6f" % error_x_vel_rms_3D, 'km/second')
+    
+    error_y_vel_rms_3D = np.sqrt(np.mean(np.square(y_vel_error)))
+    print('Y =', "%.6f" % error_y_vel_rms_3D, 'km/second')
+    
+    error_z_vel_rms_3D = np.sqrt(np.mean(np.square(z_vel_error)))
+    print('Z =', "%.6f" % error_z_vel_rms_3D, 'km/second')
+    
+    vel_rms = np.sqrt(error_x_vel_rms_3D**2 + error_y_vel_rms_3D**2 + error_z_vel_rms_3D**2)
+    print('Overall =', "%.6f" % vel_rms, 'km/s')
+
+    
+    if saveFig_bool:
+        fig_xpos.savefig('Figures/x_pos_error.png')
+        fig_ypos.savefig('Figures/y_pos_error.png')
+        fig_zpos.savefig('Figures/z_pos_error.png')
+        fig_xvel.savefig('Figures/x_vel_error.png')
+        fig_yvel.savefig('Figures/y_vel_error.png')
+        fig_zvel.savefig('Figures/z_vel_error.png')
+    
+    
+    
 
 #phys_model is a dictionary
 def calculate_area(phys_model, V, Q):
