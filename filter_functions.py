@@ -5,27 +5,38 @@ import operator
 import copy
 import matplotlib.pyplot as plt
 
-#MSIS: https://github.com/DeepHorizons/Python-NRLMSISE-00
-#import time
-from nrlmsise_00_header import *
-from nrlmsise_00 import *
-#SUBROUTINE GTD7D -- d[5] is the "effective total mass density
-#for drag" and is the sum of the mass densities of all species
-#in this model, INCLUDING anomalous oxygen.
+
 
 
 
 
 def calc_MSIS_density(t, X_vector, day_of_year_init, day_of_month_init, hour_init, month_init, year_init, omega_const, r_earth_const):
     
+    
+    #MSIS: https://github.com/DeepHorizons/Python-NRLMSISE-00
+    #import time
+    from nrlmsise_00_header import *
+    from nrlmsise_00 import *
+    #SUBROUTINE GTD7D -- d[5] is the "effective total mass density
+    #for drag" and is the sum of the mass densities of all species
+    #in this model, INCLUDING anomalous oxygen.
+    
+    
+    
+    
     state = X_vector[0:3] 
     
     
-    (latitude, longitude, altitude, day_of_month, hour) = calc_lat_lon_from_t_R(t, state, day_of_month_init, hour_init, \
+    (latitude, longitude, altitude) = calc_lat_lon_from_t_R(t, state, day_of_month_init, hour_init, \
                                                                            month_init, year_init, omega_const, r_earth_const)
     
+    
+    #adjust hour and day of year, if simulation has lasted longer than a day, and an hour
     day_of_year = math.floor(t/86400) + day_of_year_init
     t = t - math.floor(t/86400) * 86400
+    
+    hour = hour_init + t/(60*60) #hours (float) since midnight UT
+    
     
     
     if longitude < 0:
@@ -51,7 +62,7 @@ def calc_MSIS_density(t, X_vector, day_of_year_init, day_of_month_init, hour_ini
 
     Input.doy = day_of_year
     Input.year = 0 #/* without effect */
-    Input.sec = t
+    Input.sec = 0 #t***
     Input.alt = altitude #km
     Input.g_lat = math.degrees(latitude)
     Input.g_long = math.degrees(lon)
@@ -166,8 +177,16 @@ def calc_LST(t_UT, longitude):
 def calc_lat_lst_indices(t, R, day_of_month_init, hour_init, month_init, year_init, omega_const, r_earth_const,\
                          lat_res, lon_res):
     
-    (latitude, longitude, altitude, day_of_month, hour) = calc_lat_lon_from_t_R(t, R, \
+    (latitude, longitude, altitude) = calc_lat_lon_from_t_R(t, R, \
                                     day_of_month_init, hour_init, month_init, year_init, omega_const, r_earth_const)
+    
+    
+    #adjust hour and day of year, if simulation has lasted longer than a day, and an hour
+    day_of_month = math.floor(t/86400) + day_of_month_init
+    t = t - math.floor(t/86400) * 86400
+
+    hour = hour_init + t/(60*60) #hours (float) since midnight UT
+    
     
 
     if longitude < 0:
@@ -209,31 +228,21 @@ def calc_lat_lst_indices(t, R, day_of_month_init, hour_init, month_init, year_in
 
 
 #calculate the latitude and longitude of an object based UCT time (t) and object ECI position (R)
-def calc_lat_lon_from_t_R(t, R, day_of_month_init, hour_init, month_init, year_init, omega_const, r_earth_const):
+def calc_lat_lon_from_t_R(delta_t, pos_eci, day_of_month_init, hour_init, month_init, year_init, omega_const, r_earth_const):
     
-    day_of_month = math.floor(t/86400) + day_of_month_init
-    t = t - math.floor(t/86400) * 86400
-        
-    #Calculations for theta_gmst (rotation btwn ECI & ECEF for the current time of simulation/orbit)--------------
-    hour = hour_init + t/(60*60) #hours (float) since midnight UT
-    jd = calc_julian_date(year_init, month_init, day_of_month, hour) #date of interest in UT   
-    
-    T_UT = (jd - 2451545)/36525 #calc T_UT at this delta_t/date 
-    #calculate theta gmst @ 0 hr using the T_UT and the eq. from Vallado 
-    theta_gmst_0_hr = math.radians(100.4606184 + 36000.77005361*T_UT + \
-                                           .00038793*T_UT**2 - 2.6e-8*T_UT**3)
-    seconds = hour * 60 * 60 #seconds since midnight UT 
-    #calculate theta gmst using theta gmst @ 0 hr and seconds 
-    #since midnight*the rotation rate of earth
-    theta_gmst = theta_gmst_0_hr + omega_const * seconds 
-    theta_gmst = theta_gmst % (2*math.pi)
     
     #calculate position in ECEF & then the lat/lon/alt-----------------------------------------------------------
-    r_ecef = eci2ecef(R, theta_gmst)
+    r_ecef = eci2ecef(pos_eci, year_init, month_init, day_of_month_init, hour_init, delta_t, omega_const)
+    
+    #determine if simulation has lasted more than a day and add that to the day of month
+    day_of_month = math.floor(delta_t/86400) + day_of_month_init
+    delta_t = delta_t - math.floor(delta_t/86400) * 86400
+    
+    
     (latitude, longitude, altitude) = ecef2geo_lat_lon_alt(r_ecef, r_earth_const)
     
     
-    return (latitude, longitude, altitude, day_of_month, hour)
+    return (latitude, longitude, altitude)
 
 
 #input the year, month, day (of month, not of year), and hour in order to calculate the 
@@ -1134,14 +1143,18 @@ def load_satellite_struct(filename, sat_name):
     return physical_model
 
 
-#time in seconds
-def calculate_elevation(station_ecef, object_eci, time, omega, r_earth):
-    station_ecef = station_ecef[0:3].reshape(3,1)
-    object_eci = object_eci[0:3].reshape(3,1)
 
-    #begin by converting object eci to ecef
-    theta_GST = omega * time
-    object_ecef = eci2ecef(object_eci, theta_GST)
+
+#calculate elevation
+#station_ecef: station XYZ position in ecef
+#object_ecef: object XYZ position in ecef
+#r_earth: radius of earth in units consistent with station_ecef & object_ecef
+#returns: elevation in degrees
+def calculate_elevation(station_ecef, object_ecef, r_earth):
+    
+    station_ecef = station_ecef[0:3].reshape(3,1)
+    object_ecef = object_ecef[0:3].reshape(3,1)
+
 
     #calculate lat and lon of sensor
     r_earth = 6378136.3 #meters
@@ -1170,6 +1183,7 @@ def calculate_elevation(station_ecef, object_eci, time, omega, r_earth):
     #return in degrees!
     return math.degrees(el)
 
+
 #function to execute a rotation about the z axis of magnitude theta (radians)
 #of the position vector r
 def z_rotation(theta, r):
@@ -1179,11 +1193,41 @@ def z_rotation(theta, r):
     result = np.dot(rotation_mat, r)
     return result
 
-#perform a rotation of magniture theta GST to convert from eci to ecef
-#for an obj at position pos_eci
-def eci2ecef(pos_eci, theta_GST):
-    r_ecef = z_rotation(theta_GST, pos_eci)
+
+#convert from eci to ecef using:
+#pos_eci: XYZ ECI position 
+#year: year of simulation
+#month: month of simulation
+#day_of_month_init: day of month of simulation 
+#hour_init_UT: initial UT hour (can have decimal) of the initial simulation time (time when sim begins)
+#delta_t: time in seconds since the beginning of the simulation
+def eci2ecef(pos_eci, year, month, day_of_month_init, hour_init_UT, delta_t, omega_const):
+    
+    #determine if simulation has lasted more than a day and add that to the day of month
+    day_of_month = math.floor(delta_t/86400) + day_of_month_init
+    delta_t = delta_t - math.floor(delta_t/86400) * 86400
+
+    #Calculations for theta_gmst (rotation btwn ECI & ECEF for the current time of simulation/orbit)--------------
+    hour = hour_init_UT + delta_t/(60*60) #hours (float) since midnight UT
+    jd = calc_julian_date(year, month, day_of_month, hour) #date of interest in UT
+
+    T_UT = (jd - 2451545)/36525 #calc T_UT at this delta_t/date 
+    #calculate theta gmst @ 0 hr using the T_UT and the eq. from Vallado 
+    theta_gmst_0_hr = math.radians(100.4606184 + 36000.77005361*T_UT + \
+                                           .00038793*T_UT**2 - 2.6e-8*T_UT**3)
+    seconds = hour * 60 * 60 #seconds since midnight UT 
+    #calculate theta gmst using theta gmst @ 0 hr and seconds 
+    #since midnight*the rotation rate of earth
+    theta_gmst = theta_gmst_0_hr + omega_const * seconds 
+    theta_gmst = theta_gmst % (2*math.pi)
+        
+    
+    r_ecef = z_rotation(theta_gmst, pos_eci.reshape(3, 1))
+    
+    
     return r_ecef
+
+
 
 def ecef2eci(pos_ecef, theta_GST):
     r_eci = z_rotation(-theta_GST, pos_ecef)
